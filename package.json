@@ -1,21 +1,18 @@
 {
     "name": "oapen-doab-crawler",
     "version": "1.0.0",
-    "description": "OAPEN/DOAB 오픈액세스 도서 크롤러 — 라이선스 필터링 + 분할 다운로드",
+    "description": "OAPEN/DOAB 오픈액세스 도서 크롤러",
     "main": "downloader.js",
     "scripts": {
         "filter": "node filter_csv.js",
-        "test:allowed": "node downloader.js allowed --test",
+        "split": "node split_allowed.js",
+        "test:allowed-1": "node downloader.js allowed-1 --test",
+        "test:allowed-2": "node downloader.js allowed-2 --test",
         "test:ambiguous": "node downloader.js ambiguous --test",
-        "start:allowed": "node downloader.js allowed",
+        "start:allowed-1": "node downloader.js allowed-1",
+        "start:allowed-2": "node downloader.js allowed-2",
         "start:ambiguous": "node downloader.js ambiguous"
     },
-    "keywords": [
-        "crawler",
-        "oapen",
-        "doab",
-        "open-access"
-    ],
     "license": "MIT",
     "engines": {
         "node": ">=18.0.0"

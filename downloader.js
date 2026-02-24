@@ -6,20 +6,29 @@ const { Readable } = require('stream');
 
 // ───────────────────────────── CONFIG ─────────────────────────────
 const IS_TEST = process.argv.includes('--test');
-const MODE = process.argv.find(arg => arg === 'allowed' || arg === 'ambiguous');
+const VALID_MODES = ['allowed-1', 'allowed-2', 'ambiguous'];
+const MODE = process.argv.find(arg => VALID_MODES.includes(arg));
 
 if (!MODE) {
-    console.error("Please specify a mode. Example: 'node downloader.js allowed' or 'npm run start:allowed'");
+    console.error(`사용법: node downloader.js <mode> [--test]`);
+    console.error(`모드: ${VALID_MODES.join(', ')}`);
+    console.error(`예시:`);
+    console.error(`  node downloader.js allowed-1        (컴퓨터 A: 포함 전반부)`);
+    console.error(`  node downloader.js allowed-2        (컴퓨터 B: 포함 후반부)`);
+    console.error(`  node downloader.js ambiguous         (애매한 대상)`);
     process.exit(1);
 }
 
 const TEST_LIMIT = 5;
 
-const BASE_DIR = 'd:/antigravity/crawl/crawl_data';
-const CATEGORY = MODE === 'allowed' ? '포함' : '애매';
-const CSV_PATH = MODE === 'allowed'
-    ? 'd:/antigravity/crawl/repository-export-allowed.csv'
-    : 'd:/antigravity/crawl/repository-export-ambiguous.csv';
+const BASE_DIR = path.resolve(__dirname, 'crawl_data');
+const CATEGORY = MODE.startsWith('allowed') ? '포함' : '애매';
+const CSV_MAP = {
+    'allowed-1': 'repository-export-allowed-1.csv',
+    'allowed-2': 'repository-export-allowed-2.csv',
+    'ambiguous': 'repository-export-ambiguous.csv',
+};
+const CSV_PATH = path.resolve(__dirname, CSV_MAP[MODE]);
 
 const TARGET_DIR = path.join(BASE_DIR, MODE);
 const FAILED_DIR = path.join(TARGET_DIR, 'failed');
