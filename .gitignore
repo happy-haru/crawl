@@ -4,6 +4,10 @@ crawl_data/
 # 필터링된 CSV (대용량)
 repository-export-filtered.csv
 repository-export-excluded.csv
+repository-export-allowed.csv
+repository-export-allowed-1.csv
+repository-export-allowed-2.csv
+repository-export-ambiguous.csv
 
 # 원본 CSV (대용량)
 repository-export.csv
@@ -19,6 +23,4 @@ node_modules/
 .DS_Store
 Thumbs.db
 desktop.ini
-repository-export-allowed.csv
-repository-export-ambiguous.csv
 download.log
