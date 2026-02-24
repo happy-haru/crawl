@@ -6,19 +6,31 @@ const { Readable } = require('stream');
 
 // ───────────────────────────── CONFIG ─────────────────────────────
 const IS_TEST = process.argv.includes('--test');
-const TEST_LIMIT_PER_CATEGORY = 5;
+const MODE = process.argv.find(arg => arg === 'allowed' || arg === 'ambiguous');
+
+if (!MODE) {
+    console.error("Please specify a mode. Example: 'node downloader.js allowed' or 'npm run start:allowed'");
+    process.exit(1);
+}
+
+const TEST_LIMIT = 5;
 
 const BASE_DIR = 'd:/antigravity/crawl/crawl_data';
-const CSV_PATH = 'd:/antigravity/crawl/repository-export-filtered.csv';
+const CATEGORY = MODE === 'allowed' ? '포함' : '애매';
+const CSV_PATH = MODE === 'allowed'
+    ? 'd:/antigravity/crawl/repository-export-allowed.csv'
+    : 'd:/antigravity/crawl/repository-export-ambiguous.csv';
+
+const TARGET_DIR = path.join(BASE_DIR, MODE);
+const FAILED_DIR = path.join(TARGET_DIR, 'failed');
 
 // Anti-Bot settings
-const MIN_DELAY_MS = 6000;   // 최소 6초
-const MAX_DELAY_MS = 15000;  // 최대 15초
+const MIN_DELAY_MS = 6000;
+const MAX_DELAY_MS = 15000;
 const MAX_RETRIES = 3;
-const RETRY_BASE_MS = 10000; // 재시도 기본 대기 10초 (지수적 백오프)
-const REQUEST_TIMEOUT_MS = 60000; // 60초 타임아웃
+const RETRY_BASE_MS = 10000;
+const REQUEST_TIMEOUT_MS = 60000;
 
-// Rotating User-Agents (실제 브라우저 문자열)
 const USER_AGENTS = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15',
@@ -28,23 +40,14 @@ const USER_AGENTS = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.5993.89 Safari/537.36 Edg/118.0.2088.61',
 ];
 
-// ───────────────────────────── DIRS ─────────────────────────────
-const DIRS = {
-    '포함': path.join(BASE_DIR, 'allowed'),
-    '애매': path.join(BASE_DIR, 'ambiguous'),
-};
-const FAILED_DIR = path.join(BASE_DIR, 'failed');
-
+// ───────────────────────────── INIT ─────────────────────────────
 function ensureDirs() {
-    for (const cat of Object.values(DIRS)) {
-        fs.mkdirSync(path.join(cat, 'files'), { recursive: true });
-        fs.mkdirSync(path.join(cat, 'metadata'), { recursive: true });
-    }
+    fs.mkdirSync(path.join(TARGET_DIR, 'files'), { recursive: true });
+    fs.mkdirSync(path.join(TARGET_DIR, 'metadata'), { recursive: true });
     fs.mkdirSync(FAILED_DIR, { recursive: true });
 }
 
-// ───────────────────────────── RESUME STATE ─────────────────────────────
-const PROGRESS_FILE = path.join(BASE_DIR, '_progress.json');
+const PROGRESS_FILE = path.join(TARGET_DIR, '_progress.json');
 
 function loadProgress() {
     if (fs.existsSync(PROGRESS_FILE)) {
@@ -127,7 +130,7 @@ async function downloadWithRetry(url, destPathBase) {
                     'User-Agent': ua,
                     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                     'Accept-Language': 'en-US,en;q=0.9',
-                    'Accept-Encoding': 'identity',      // 압축 비활성 → 안정적 저장
+                    'Accept-Encoding': 'identity',
                     'Connection': 'keep-alive',
                     'Referer': 'https://www.google.com/',
                 },
@@ -138,7 +141,6 @@ async function downloadWithRetry(url, destPathBase) {
             if (!res.ok) {
                 const msg = `HTTP ${res.status} ${res.statusText}`;
                 if (res.status === 429 || res.status >= 500) {
-                    // 서버 과부하/레이트리밋 → 재시도
                     const wait = RETRY_BASE_MS * Math.pow(2, attempt - 1) + randInt(1000, 5000);
                     console.log(`   ⚠ ${msg} – retry ${attempt}/${MAX_RETRIES}, waiting ${(wait / 1000).toFixed(1)}s`);
                     await delay(wait);
@@ -147,7 +149,6 @@ async function downloadWithRetry(url, destPathBase) {
                 return { success: false, reason: msg };
             }
 
-            // Determine extension
             const ct = res.headers.get('content-type') || '';
             let ext = guessExtFromUrl(url) || guessExtFromContentType(ct) || '.bin';
             const finalPath = destPathBase + ext;
@@ -160,7 +161,6 @@ async function downloadWithRetry(url, destPathBase) {
                 fs.writeFileSync(finalPath, buf);
             }
 
-            // 파일 크기 검증 (0바이트 방지)
             const stat = fs.statSync(finalPath);
             if (stat.size === 0) {
                 fs.unlinkSync(finalPath);
@@ -190,18 +190,23 @@ async function run() {
     const progress = loadProgress();
     const doneSet = new Set(progress.done);
 
+    if (!fs.existsSync(CSV_PATH)) {
+        console.error(`ERROR: CSV file not found: ${CSV_PATH}`);
+        console.error(`Have you run 'npm run filter' yet?`);
+        process.exit(1);
+    }
+
     const fileStream = fs.createReadStream(CSV_PATH, { encoding: 'utf8' });
     const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
 
     let header = [];
     let currentRecord = '';
-    const testCounts = { '포함': 0, '애매': 0 };
+    let countProcessed = 0;
     const stats = { success: 0, failed: 0, skipped: 0, resumed: 0 };
 
     console.log(`\n╔══════════════════════════════════════════╗`);
-    console.log(`║  Downloader – ${IS_TEST ? 'TEST' : 'FULL'} MODE                    ║`);
-    console.log(`║  Anti-Bot: ON  │  Delay: ${MIN_DELAY_MS / 1000}–${MAX_DELAY_MS / 1000}s        ║`);
-    console.log(`║  Retries: ${MAX_RETRIES}    │  Timeout: ${REQUEST_TIMEOUT_MS / 1000}s         ║`);
+    console.log(`║  Downloader – MODE: ${MODE.toUpperCase().padEnd(20)} ║`);
+    console.log(`║  Type: ${IS_TEST ? 'TEST (5 items)' : 'FULL'}                              ║`);
     console.log(`╚══════════════════════════════════════════╝\n`);
 
     for await (const line of rl) {
@@ -213,17 +218,9 @@ async function run() {
 
         if (header.length === 0) { header = row; continue; }
 
+        if (IS_TEST && countProcessed >= TEST_LIMIT) break;
+
         const getCol = name => { const i = header.indexOf(name); return i !== -1 && i < row.length ? row[i] : ''; };
-
-        const category = getCol('License_Category');
-        if (!DIRS[category]) continue;
-
-        if (IS_TEST) {
-            if (testCounts[category] >= TEST_LIMIT_PER_CATEGORY) {
-                if (testCounts['포함'] >= TEST_LIMIT_PER_CATEGORY && testCounts['애매'] >= TEST_LIMIT_PER_CATEGORY) break;
-                continue;
-            }
-        }
 
         const id = getCol('id') || `unknown_${Date.now()}`;
 
@@ -233,21 +230,17 @@ async function run() {
         let downloadUrl = (getCol('BITSTREAM Download URL') || '').trim();
         if (downloadUrl.includes('||')) downloadUrl = downloadUrl.split('||')[0].trim();
 
-        const targetDir = DIRS[category];
-        testCounts[category]++;
-
-        const total = testCounts['포함'] + testCounts['애매'];
-        console.log(`\n[${total}] [${category}] ${id}`);
+        countProcessed++;
+        console.log(`\n[${countProcessed}] [${CATEGORY}] ${id}`);
         console.log(`   Title: ${(getCol('dc.title') || '').substring(0, 60)}`);
 
-        // ── 메타데이터 구성 ──
         const metadata = {
             title: getCol('dc.title'),
             source_site: safeDomain(getCol('dc.identifier.uri') || downloadUrl),
             source_page_url: getCol('dc.identifier.uri'),
             download_url: downloadUrl,
             license_raw: getCol('BITSTREAM License'),
-            license_evidence: 'repository-export.csv BITSTREAM License column',
+            license_evidence: 'repository-export.csv',
             file_format: '',
             download_status: '',
             download_status_reason: '',
@@ -260,7 +253,7 @@ async function run() {
             isbn: getCol('dc.identifier.isbn') || getCol('BITSTREAM ISBN'),
             language: getCol('dc.language'),
             local_file_name: '',
-            note: `[Category: ${category}] ${getCol('License_Reason')}`,
+            note: `[Category: ${CATEGORY}] ${getCol('License_Reason')}`,
         };
 
         if (!downloadUrl) {
@@ -270,13 +263,12 @@ async function run() {
             stats.failed++;
             console.log(`   ✗ No URL`);
         } else {
-            // 랜덤 지연 (Anti-Bot)
             const jitter = randInt(MIN_DELAY_MS, MAX_DELAY_MS);
             console.log(`   ⏳ Waiting ${(jitter / 1000).toFixed(1)}s…`);
             await delay(jitter);
 
             console.log(`   ↓ ${downloadUrl.substring(0, 80)}…`);
-            const destBase = path.join(targetDir, 'files', id);
+            const destBase = path.join(TARGET_DIR, 'files', id);
             const result = await downloadWithRetry(downloadUrl, destBase);
 
             if (result.success) {
@@ -293,22 +285,18 @@ async function run() {
             }
         }
 
-        // 개별 메타 JSON 저장
-        const metaDir = metadata.download_status === 'failed' ? FAILED_DIR : path.join(targetDir, 'metadata');
+        const metaDir = metadata.download_status === 'failed' ? FAILED_DIR : path.join(TARGET_DIR, 'metadata');
         fs.writeFileSync(path.join(metaDir, `${id}.json`), JSON.stringify(metadata, null, 2));
 
-        // JSONL 기록
         const jsonlFile = metadata.download_status === 'failed'
             ? path.join(FAILED_DIR, 'failed_downloads.jsonl')
-            : path.join(targetDir, 'resources_metadata.jsonl');
+            : path.join(TARGET_DIR, 'resources_metadata.jsonl');
         fs.appendFileSync(jsonlFile, JSON.stringify(metadata) + '\n');
 
-        // 진행 상태 저장 (매 건)
         progress.done.push(id);
-        if (total % 10 === 0) saveProgress(progress); // 10건마다 디스크에 기록
+        saveProgress(progress);
     }
 
-    // 마지막 저장
     saveProgress(progress);
 
     console.log(`\n╔══════════════════════════════════════════╗`);

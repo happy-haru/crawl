@@ -1,148 +1,104 @@
-# 📚 OAPEN/DOAB 오픈액세스 도서 크롤러
+# 📚 OAPEN/DOAB 오픈액세스 라이선스 기반 다운로더
 
-오픈액세스 도서 저장소(OAPEN, DOAB 등)에서 **라이선스 기반 필터링** 후  
-원문 파일 다운로드 + 메타데이터(JSONL)를 자동 수집하는 Node.js 크롤러입니다.
+원본 CSV의 용량이 방대하고 요청 제한(Rate-limit) 회피 목적으로 지연(6~15초)을 포함하기 때문에 **전체 수집에 며칠이 소요**될 수 있습니다. 이를 효율적으로 처리하기 위해 **"포함 (Allowed)" 그룹과 "애매한 (Ambiguous)" 그룹을 서로 다른 두 대의 컴퓨터에서 나눠서 병렬 실행**하도록 설계되었습니다.
 
 ---
 
 ## 🔧 요구사항
 
 - **Node.js 18 이상** (fetch API 내장 필요)
-- **Git** (소스 관리용)
-- **원본 CSV 파일**: `repository-export.csv` (OAPEN/DOAB에서 export한 파일)
+- **Git** (소스 공유용)
+- **원본 CSV 파일**: `repository-export.csv`
 
 ---
 
-## 🚀 빠른 시작 가이드 (다른 컴퓨터에서 작업 시)
+## 🚀 빠른 시작 가이드 (2대의 컴퓨터 협업)
 
-### 1단계 — 저장소 클론
+### 전체 공통 사전 작업
+
+**각 컴퓨터**에서 다음 과정을 똑같이 진행합니다.
+
+#### 1단계 — 저장소 클론
 
 ```bash
 git clone https://github.com/happy-haru/crawl.git
 cd crawl
 ```
 
-### 2단계 — 원본 CSV 배치
+#### 2단계 — 원본 CSV 배치
 
-원본 CSV 파일(`repository-export.csv`)은 용량이 커서 Git에 포함되지 않습니다.  
-아래 경로에 수동으로 복사해 주세요:
-
-```
+원본 CSV(`repository-export.csv`, 약 280MB)를 프로젝트 루트 폴더에 복사합니다.
+```text
 crawl/
-└─ repository-export.csv   ← 여기에 배치
+└─ repository-export.csv   ← 여기에 복사 (대용량이라 Git에서 제외됨)
 ```
 
-> 💡 **팁**: Google Drive, OneDrive, USB 등으로 옮기세요. (약 280MB)
+#### 3단계 — 데이터 분할 (스크립트 실행)
 
-### 3단계 — 라이선스 필터링 실행
-
-원본 CSV를 "포함 가능 / 제외 / 애매" 3개 카테고리로 분류합니다:
+아래 명령으로 전체 CSV를 각각의 카테고리별로 분할합니다.
 
 ```bash
 npm run filter
 ```
+> 결과로 다음 3개 파일이 생성됩니다.
+> - `repository-export-allowed.csv` (포함 대상 35,000건)
+> - `repository-export-ambiguous.csv` (애매한 대상 17,000건)
+> - `repository-export-excluded.csv` (제외 대상)
 
-출력 파일:
-- `repository-export-filtered.csv` → 포함 가능 + 애매 (다운로드 대상)
-- `repository-export-excluded.csv` → 제외 대상
+---
 
-### 4단계 — 테스트 다운로드 (선택)
+### 다운로드 실행 (컴퓨터 분리)
 
-실제 다운로드 전에 5건씩 시범 수집합니다:
+서버 차단을 막기 위해 한 컴퓨터에서 동시에 돌리지 말고, **A 컴퓨터는 Allowed, B 컴퓨터는 Ambiguous**를 맡아서 실행하시길 권장합니다.
 
+**💻 컴퓨터 A (포함 대상 담당 시)**
 ```bash
-npm test
+npm run start:allowed
 ```
+→ `crawl_data/allowed/` 폴더에 다운로드가 진행됩니다.
 
-### 5단계 — 전체 다운로드 실행
-
+**💻 컴퓨터 B (애매한 대상 담당 시)**
 ```bash
-npm start
+npm run start:ambiguous
+```
+→ `crawl_data/ambiguous/` 폴더에 다운로드가 진행됩니다.
+
+> 🔁 **이어받기**: 중간에 `Ctrl+C`나 절전모드 등으로 중단되어도 동일한 명령어(`npm run start:allowed` 등)를 다시 실행하면 진행했던 부분부터 알아서 이어서 받습니다.
+
+---
+
+## 📁 획득되는 폴더 구조
+
+두 컴퓨터의 작업이 끝나면 각각 다음과 같은 구조의 데이터가 나옵니다.
+
+**컴퓨터 A (Allowed)**
+```text
+crawl_data/allowed/
+├─ files/                      # 원문 다운로드 파일 (PDF, EPUB 등)
+├─ metadata/                   # 파일별 JSON 목록
+├─ failed/                     # 다운로드 실패한 항목의 메타 및 JSONL 관리
+├─ resources_metadata.jsonl    # 정상 다운로드 전체 통합 JSONL
+└─ _progress.json              # 이어받기 상태값
 ```
 
-> ⏱ 약 52,000건 × 평균 10초 = **약 6일** 소요 예상  
-> 🔁 `Ctrl+C`로 중단해도 `_progress.json` 덕분에 **다시 실행 시 이어서 진행**됨
-
----
-
-## 📁 출력 폴더 구조
-
-```
-crawl_data/
-├─ allowed/                    # ✅ 포함 가능 (CC BY 등)
-│  ├─ files/                   # 원문 파일 (PDF, EPUB, HTML 등)
-│  ├─ metadata/                # 파일별 개별 메타 JSON
-│  └─ resources_metadata.jsonl # 통합 JSONL
-├─ ambiguous/                  # ⚠️ 애매한 라이선스
-│  ├─ files/
-│  ├─ metadata/
-│  └─ resources_metadata.jsonl
-├─ failed/                     # ❌ 다운로드 실패 건
-│  ├─ *.json                   # 실패 건별 메타
-│  └─ failed_downloads.jsonl   # 실패 통합 JSONL
-└─ _progress.json              # 이어받기 상태 파일
+**컴퓨터 B (Ambiguous)**
+```text
+crawl_data/ambiguous/
+├─ files/                      
+├─ metadata/                   
+├─ failed/                     
+├─ resources_metadata.jsonl    
+└─ _progress.json              
 ```
 
----
-
-## 🛡️ 안티봇 탐지 회피 전략
-
-| 항목 | 설정 |
-|------|------|
-| 요청 간 지연 | 6~15초 랜덤 |
-| User-Agent | 6종 로테이션 (Chrome/Firefox/Safari/Edge) |
-| Referer | `google.com` 스푸핑 |
-| 실패 재시도 | 최대 3회, 지수적 백오프 (10s → 20s → 40s + jitter) |
-| 429/5xx 대응 | 자동 백오프 후 재시도 |
-| 이어받기 | `_progress.json` 기반 Resume |
+작업 종료 후, 이 두 폴더를 하나의 USB 등으로 합치시면 전체 수집이 완성됩니다.
 
 ---
 
-## 📋 메타데이터 필드 설명
+## �️ 적용된 안티봇 (Anti-Bot) 처리 내용
 
-각 건의 JSON에는 다음 필드가 포함됩니다:
-
-| 필드 | 설명 | 예시 |
-|------|------|------|
-| `title` | 제목 | `"Human Cultures..."` |
-| `source_site` | 출처 도메인 | `"directory.doabooks.org"` |
-| `source_page_url` | 상세페이지 URL | `https://...` |
-| `download_url` | 원문 다운로드 URL | `https://...pdf` |
-| `license_raw` | 라이선스 원문 | `"https://creativecommons.org/licenses/by/4.0/"` |
-| `file_format` | 파일 포맷 | `"pdf"` |
-| `download_status` | 처리 결과 | `"success"` / `"failed"` |
-| `download_status_reason` | 실패 사유 | `"HTTP 404"` |
-| `downloaded_at` | 다운로드 시점 | `"2026-02-24T11:13:25Z"` |
-| `authors` | 저자 | `"John Doe"` |
-| `publisher` | 출판사 | `"Springer"` |
-| `doi` | DOI | `"10.1007/..."` |
-| `isbn` | ISBN | `"978..."` |
-| `language` | 언어 | `"English[eng]"` |
-
----
-
-## 🔄 실패한 다운로드 재시도
-
-실패 건만 따로 재시도하려면 `failed/failed_downloads.jsonl`을 참고하여  
-해당 URL들을 수동으로 확인하거나 별도의 재시도 스크립트를 실행하세요.
-
----
-
-## 📜 스크립트 목록
-
-| 파일 | 역할 |
-|------|------|
-| `filter_csv.js` | 원본 CSV → 라이선스 기준 분류 |
-| `downloader.js` | 필터링 결과 기반 파일 다운로드 + 메타 수집 |
-| `package.json` | npm 스크립트 단축키 |
-
----
-
-## ⚠️ 주의사항
-
-- **원본 CSV와 다운로드 데이터는 Git에 포함되지 않습니다** (`.gitignore` 처리됨)
-- Node.js 18 미만에서는 `fetch` API가 없어 실행 불가합니다
-- 장시간 실행 시 터미널이 닫히지 않도록 `tmux`, `screen`, 또는 `nohup`을 사용하세요:
-  ```bash
-  nohup node downloader.js > download.log 2>&1 &
-  ```
+대규모 크롤링 시 차단당하지 않도록 다음 조치가 적용되었습니다:
+- **요청 간 무작위 지연**: 각 6초 ~ 15초 사이 무작위 (서버 보호)
+- **로테이션 User-Agent**: Safari, Chrome, Edge 등 6종의 일반 브라우저 헤더를 번갈아 사용
+- **자동 백오프 재시도 (Exponential Backoff)**: 403, 404 외에 429(Rate Limit)나 5xx 에러 발생 시, 점진적으로 대기시간을 늘려(10s -> 20s -> 40s) 재시도
+- **Referer 스푸핑**: 유입 출처를 구글 검색엔진으로 인식되게 헤더 변조

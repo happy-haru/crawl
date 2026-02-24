@@ -19,3 +19,6 @@ node_modules/
 .DS_Store
 Thumbs.db
 desktop.ini
+repository-export-allowed.csv
+repository-export-ambiguous.csv
+download.log

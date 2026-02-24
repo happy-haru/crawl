@@ -5,7 +5,6 @@ function parseCSVRecord(recordStr) {
     const result = [];
     let curVal = '';
     let inQuotes = false;
-    // Remove trailing newline added by the accumulator
     if (recordStr.endsWith('\n')) recordStr = recordStr.slice(0, -1);
     if (recordStr.endsWith('\r')) recordStr = recordStr.slice(0, -1);
 
@@ -57,7 +56,6 @@ function categorizeLicense(licenseValue) {
 
     const val = licenseValue.toLowerCase();
 
-    // 1. Check for exclusions
     const excludeKeywords = [
         '-nc', '/nc/', 'nc/', 'non-commercial', 'noncommercial',
         '-nd', '/nd/', 'nd/', 'no derivatives', 'noderivs',
@@ -65,11 +63,10 @@ function categorizeLicense(licenseValue) {
     ];
     for (const kw of excludeKeywords) {
         if (val.includes(kw)) {
-            return { category: '제외', reason: `재외 조건 포함 (${kw})` };
+            return { category: '제외', reason: `제외 조건 포함 (${kw})` };
         }
     }
 
-    // 2. Check for inclusions
     const includeKeywords = [
         '/by/', '-by/', 'cc by', 'cc-by', 'public domain', 'publicdomain', 'cc0', 'pdm'
     ];
@@ -79,7 +76,6 @@ function categorizeLicense(licenseValue) {
         }
     }
 
-    // 3. Otherwise ambiguous
     return { category: '애매', reason: '명시적 라이선스 키워드 없음 (Unclear/Unconfirmable)' };
 }
 
@@ -87,7 +83,8 @@ async function run() {
     const fileStream = fs.createReadStream('d:/antigravity/crawl/repository-export.csv', { encoding: 'utf8' });
     const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
 
-    const outFiltered = fs.createWriteStream('d:/antigravity/crawl/repository-export-filtered.csv', { encoding: 'utf8' });
+    const outAllowed = fs.createWriteStream('d:/antigravity/crawl/repository-export-allowed.csv', { encoding: 'utf8' });
+    const outAmbiguous = fs.createWriteStream('d:/antigravity/crawl/repository-export-ambiguous.csv', { encoding: 'utf8' });
     const outExcluded = fs.createWriteStream('d:/antigravity/crawl/repository-export-excluded.csv', { encoding: 'utf8' });
 
     let header = [];
@@ -103,7 +100,6 @@ async function run() {
         currentRecord += line + '\n';
         const quotesCount = (currentRecord.match(/"/g) || []).length;
         if (quotesCount % 2 === 0) {
-            // Balanced quotes, parse record
             const row = parseCSVRecord(currentRecord);
             currentRecord = '';
 
@@ -111,10 +107,10 @@ async function run() {
                 header = row;
                 licenseIdx = header.indexOf('BITSTREAM License');
 
-                // Add new columns
                 const newHeader = [...header, 'License_Category', 'License_Reason'];
                 const headerCsv = formatCSVRow(newHeader) + '\n';
-                outFiltered.write(headerCsv);
+                outAllowed.write(headerCsv);
+                outAmbiguous.write(headerCsv);
                 outExcluded.write(headerCsv);
                 continue;
             }
@@ -132,27 +128,29 @@ async function run() {
             if (category === '제외') {
                 outExcluded.write(rowCsv);
                 countExcluded++;
-            } else {
-                outFiltered.write(rowCsv);
-                if (category === '포함') countIncluded++;
-                if (category === '애매') countAmbiguous++;
+            } else if (category === '포함') {
+                outAllowed.write(rowCsv);
+                countIncluded++;
+            } else if (category === '애매') {
+                outAmbiguous.write(rowCsv);
+                countAmbiguous++;
             }
+
             if (countTotal % 10000 === 0) {
                 console.log(`Processed ${countTotal} records...`);
             }
         }
     }
 
-    outFiltered.end();
+    outAllowed.end();
+    outAmbiguous.end();
     outExcluded.end();
 
     console.log(`\nProcessing Complete.`);
     console.log(`Total Records: ${countTotal}`);
-    console.log(`Included (포함 가능): ${countIncluded}`);
-    console.log(`Ambiguous (애매한 경우): ${countAmbiguous}`);
-    console.log(`Excluded (제외 대상): ${countExcluded}`);
-    console.log(`Filtered data saved to: repository-export-filtered.csv`);
-    console.log(`Excluded data saved to: repository-export-excluded.csv`);
+    console.log(`Included (포함 가능): ${countIncluded} -> repository-export-allowed.csv`);
+    console.log(`Ambiguous (애매한 경우): ${countAmbiguous} -> repository-export-ambiguous.csv`);
+    console.log(`Excluded (제외 대상): ${countExcluded} -> repository-export-excluded.csv`);
 }
 
 run().catch(console.error);
