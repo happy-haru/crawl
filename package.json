@@ -1,0 +1,22 @@
+{
+    "name": "oapen-doab-crawler",
+    "version": "1.0.0",
+    "description": "OAPEN/DOAB 오픈액세스 도서 크롤러 — 라이선스 필터링 + 원문 다운로드 + 메타데이터 수집",
+    "main": "downloader.js",
+    "scripts": {
+        "filter": "node filter_csv.js",
+        "test": "node downloader.js --test",
+        "start": "node downloader.js"
+    },
+    "keywords": [
+        "crawler",
+        "oapen",
+        "doab",
+        "open-access",
+        "metadata"
+    ],
+    "license": "MIT",
+    "engines": {
+        "node": ">=18.0.0"
+    }
+}

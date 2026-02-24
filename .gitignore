@@ -1,0 +1,21 @@
+# 다운로드된 파일 (대용량)
+crawl_data/
+
+# 필터링된 CSV (대용량)
+repository-export-filtered.csv
+repository-export-excluded.csv
+
+# 원본 CSV (대용량)
+repository-export.csv
+
+# 임시 스크립트
+extract_licenses.py
+extract_licenses.js
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
